@@ -1,0 +1,26 @@
+{
+  "name": "webgme-pegasus",
+  "version": "0.1.0",
+  "description": "Pegasus plugin for webgme",
+  "engines": {
+    "node": ">=0.10.0"
+  },
+  "homepage": "http://github.com/webgme/webgme-pegasus",
+  "keywords": [
+      "webgme",
+      "pegasus"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "http://github.com/webgme/webgme-pegasus.git"
+  },
+  "bugs": {
+    "url": "http://github.com/webgme/webgme-pegasus/issues"
+  },
+  "license": "MIT",
+  "dependencies": {
+      "webgme": "https://github.com/webgme/webgme/tarball/master"
+  },
+  "devDependencies": {},
+  "main": "app.js"
+}

@@ -1,0 +1,8 @@
+# server logs
+server.log
+
+# Webstorm
+.idea
+
+# used npm modules
+node_modules
