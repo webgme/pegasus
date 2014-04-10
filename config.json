@@ -2,20 +2,13 @@
     "debug": false,
 
     "port": 8888,
-    "sessioncookiesecret": "meWebGMEez",
-
-    "loglevel": 2,
-    "logfile": "server.log",
 
     "mongoip":"129.59.105.239",
     "mongoport": 27017,
     "mongodatabase": "multi",
 
-    "basedir": "./node_modules/webgme",
-    "clientbasedir": "./node_modules/webgme/client",
-
-    "decoratorpaths": ["./node_modules/webgme/client/decorators"],
     "pluginBasePaths": ["./"],
 
-    "project":"pegasus_prototype"
+    "project":"pegasus_prototype",
+    "autostart":true
 }
