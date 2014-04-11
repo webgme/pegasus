@@ -28,18 +28,11 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             }
         });
     };
-    PegasusPlugin.prototype._getMetaTypeByName = function(typeName){
-        var self = this,
-            keys = Object.keys(self.META);
-        for(var i=0;i<keys.length;i++){
-            if(self.core.getAttribute(self.META[keys[i]],'name') === typeName){
-                return self.META[keys[i]];
-            }
-        }
-        return null;
-    };
     PegasusPlugin.prototype._isTypeOf = function(node,type){
         //now we make the check based upon path
+        if(node === undefined || node === null || type === undefined || type === null){
+            return false;
+        }
         var self = this;
         while(node){
             if(self.core.getPath(node) === self.core.getPath(type)){
@@ -107,7 +100,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             i;
 
         for(i=0;i<childrenPaths.length;i++){
-            if(self._isTypeOf(self._nodeCache[childrenPaths[i]],self._getMetaTypeByName('InPreviewAspect'))){
+            if(self._isTypeOf(self._nodeCache[childrenPaths[i]],self.META['InPreviewAspect'])){
                 self.core.deleteNode(self._nodeCache[childrenPaths[i]]);
                 delete self._nodeCache[childrenPaths[i]];
             }
@@ -143,7 +136,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         while(nIds.length){
             //Create entries in the graph for all non-connection ids
             n = self._nodeCache[nIds[0]];
-            if(!self._isTypeOf(n,self._getMetaTypeByName('Connection'))){
+            if(!self._isTypeOf(n,self.META['Connection'])){
 
                 if(!self.graph[nIds[0]]){
                     self.graph[nIds[0]] = {'base': [], 'child': []};
@@ -175,7 +168,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         for(i=0;i<nodes.length;i++){
             if(nodes[i] !== 'start'){
                 n = self._nodeCache[nodes[i]];
-                if(self._isTypeOf(n,self._getMetaTypeByName('FileSet')) || self._isTypeOf(n,self._getMetaTypeByName('File'))){
+                if(self._isTypeOf(n,self.META['FileSet']) || self._isTypeOf(n,self.META['File'])){
                     if(self.graph[nodes[i]].base.length === 0){
                         self.graph['start'].push(nodes[i]);
                     }
@@ -207,7 +200,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             preview = null;
             //If the next node is a fork
             //Create a fork object and add to "forks"
-            if( self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]].child[0]],self._getMetaTypeByName("Fork")) ) {
+            if( self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]].child[0]],self.META['Fork']) ) {
                 fork = { 'start': nodeIds[0], 'in': [], 'out': null  };
                 if(currFork){//set the 'in'/'out' variable
                     currFork.in.push(fork);
@@ -230,7 +223,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
                 delete self.graph[forkId];
 
-            } else if( self._isTypeOf(self._nodeCache[nodeIds[0]],self._getMetaTypeByName("Merge")) ) {//Close the most recent fork
+            } else if( self._isTypeOf(self._nodeCache[nodeIds[0]],self.META['Merge']) ) {//Close the most recent fork
 
                 //Close the current fork
                 mergeId = nodeIds[0];
@@ -243,14 +236,14 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 currFork = currFork.out;
 
                 assert(self.graph[mergeId].child.length === 1, "Merge operator can only have one connection out");
-                assert(self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]].child[0]],self._getMetaTypeByName("FileSet")), "FileSet must follow a Merge operator");
+                assert(self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]].child[0]],self.META['FileSet']), "FileSet must follow a Merge operator");
 
                 //Remove Merge object from graph
                 nodeIds[0] = self.graph[mergeId].base[0];
                 self._removeFromGraph(fsId);
                 self._removeFromGraph(mergeId);
 
-            } else if( self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]]],self._getMetaTypeByName("FileSet")) ) {//If the node is a fileset and next is not a fork
+            } else if( self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]]],self.META['FileSet']) ) {//If the node is a fileset and next is not a fork
                 ids = self._processFileSet(nodeIds[0]);             //Resolve the whole fileset and insert the additional files into the graph
                 preview = ids[0];
                 i = 0;
@@ -616,7 +609,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     //transformed
     PegasusPlugin.prototype._createConnection = function(src, dst){
         var self = this,
-            newConnection = self.core.createNode({parent:self.activeNode,base:self._getMetaTypeByName('PreviewConn')});
+            newConnection = self.core.createNode({parent:self.activeNode,base:self.META['PreviewConn']});
 
         self.core.setPointer(newConnection,'src',self._nodeCache[src]);
         self.core.setPointer(newConnection,'dst',self._nodeCache[dst]);
@@ -632,7 +625,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             name = self.core.getAttribute(node,'name'),
             pos = JSON.parse(JSON.stringify(self.core.getRegistry(node,'position')));
 
-        if(self._isTypeOf(node,self._getMetaTypeByName('File'))){
+        if(self._isTypeOf(node,self.META['File'])){
             return self._createFile(name,pos);
         }
 
@@ -644,7 +637,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         var self = this,
             newFile;
 
-        newFile = self.core.createNode({parent:self.activeNode,base:self._getMetaTypeByName('PreviewFile')});
+        newFile = self.core.createNode({parent:self.activeNode,base:self.META['PreviewFile']});
         self.core.setAttribute(newFile,'name',name);
         self.core.setRegistry(newFile,'position',pos);
 
@@ -658,7 +651,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         var self = this,
             newJob;
 
-        newJob = self.core.createNode({parent:self.activeNode,base:self._getMetaTypeByName('PreviewJob')});
+        newJob = self.core.createNode({parent:self.activeNode,base:self.META['PreviewJob']});
         self.core.setAttribute(newJob,'name',name);
         self.core.setAttribute(newJob,'cmd',cmd);
         self.core.setAttribute(newJob,'pos',pos);
