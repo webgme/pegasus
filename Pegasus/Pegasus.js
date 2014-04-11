@@ -385,7 +385,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             for(k=0;k<copyPaths.length;k++){
                 var copiedNode = self.core.copyNode(self._nodeCache[copyPaths[k]],self.activeNode);
                 self.core.setRegistry(copiedNode,'position',copyRequest[copyPaths[k]].registry.position);
-                if(copyRequest[copyPaths[k]].attributes.name){
+                if( copyRequest[copyPaths[k]].attributes && copyRequest[copyPaths[k]].attributes.name){
                     self.core.setAttribute(copiedNode,'name',copyRequest[copyPaths[k]].attributes.name);
                 }
                 self._nodeCache[self.core.getPath(copiedNode)] = copiedNode;
