@@ -368,8 +368,8 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         i = 0;
         while(++i < numCopies){
             //Set names
-            copyRequest[sfile]['attributes'] = {};
-            copyRequest[sfile]['attributes']['name'] = startNames[i];
+            copyRequest[sfile].attributes = {};
+            copyRequest[sfile].attributes.name = startNames[i];
 
             //Shift each node
             var copyPaths = Object.keys(copyRequest),
@@ -384,6 +384,10 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             copiedPaths = [];
             for(k=0;k<copyPaths.length;k++){
                 var copiedNode = self.core.copyNode(self._nodeCache[copyPaths[k]],self.activeNode);
+                self.core.setRegistry(copiedNode,'position',copyRequest[copyPaths[k]].registry.position);
+                if(copyRequest[copyPaths[k]].attributes.name){
+                    self.core.setAttribute(copiedNode,'name',copyRequest[copyPaths[k]].attributes.name);
+                }
                 self._nodeCache[self.core.getPath(copiedNode)] = copiedNode;
                 copiedPaths.push(self.core.getPath(copiedNode));
             }
