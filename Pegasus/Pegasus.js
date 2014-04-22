@@ -17,6 +17,8 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         //we load the children of the active node
         var self = this;
         self._nodeCache = {};
+        self.dx = 140;
+        self.dy = 0;
         self.core.loadChildren(self.activeNode,function(err,children){
             if(err){
                 callback(err)
@@ -223,7 +225,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
                 delete self.graph[forkId];
 
-            } else if( self._isTypeOf(self._nodeCache[nodeIds[0]],self.META['Merge']) ) {//Close the most recent fork
+            } else if( self._isTypeOf(self._nodeCache[nodeIds[0]],self.META['Merge']) ) { //If merge operator
 
                 //Close the current fork
                 mergeId = nodeIds[0];
@@ -623,6 +625,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     };
     //transformed
     PegasusPlugin.prototype._createPreviewNode = function(id){
+        //FIXME the position is messed up here
         //Creates the Preview_File/Job
         var self = this,
             node = self._nodeCache[id],
