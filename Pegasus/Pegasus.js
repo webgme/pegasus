@@ -19,16 +19,33 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         self._nodeCache = {};
         self.dx = 140;
         self.dy = 0;
-        self.core.loadChildren(self.activeNode,function(err,children){
-            if(err){
-                callback(err)
-            } else {
-                for(var i=0;i<children.length;i++){
-                    self._nodeCache[self.core.getPath(children[i])] = children[i];
+        var load = function(node, fn){
+            self.core.loadChildren(node,function(err,children){
+                if(err){
+                    fn(err)
+                } else {
+                    var j = children.length,
+                        e = null; //error
+
+                    if(j === 0){
+                        fn(null);
+                    }
+
+                    for(var i=0;i<children.length;i++){
+                        self._nodeCache[self.core.getPath(children[i])] = children[i];
+                        load(children[i], function(err){
+                            e = e || err;
+                            if(--j === 0){//callback only on last child
+                                fn(e);
+                            }
+                        });
+                    }
                 }
-                callback(null);
-            }
-        });
+            });
+        };
+
+        load(self.activeNode, callback);
+
     };
     PegasusPlugin.prototype._isTypeOf = function(node,type){
         //now we make the check based upon path
@@ -66,6 +83,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 callback(err,self.result);
             } else {
                 //executing the plugin
+                self.logger.info("Finished loading children");
                 var err = self._runSync();
                 if(err){
                     self.result.success = false;
@@ -332,7 +350,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         while(self.graph[nodes[0]] && self.graph[nodes[0]].base.indexOf(fork.end[0]) === -1){
             //BFS
             //Get the position info about entire box
-            pos = self.core.getRegistry(self._nodeCache[nodes[0]],'position');
+            pos = self.core.getMemberRegistry(self.activeNode, "Workspace", nodes[0], 'position') || self.core.getRegistry(self._nodeCache[nodes[0]],'position');
             x1 = Math.min(x1, pos.x) || pos.x;
             x2 = Math.max(x2, pos.x) || pos.x;
             y1 = Math.min(y1, pos.y) || pos.y;
@@ -597,7 +615,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     //transformed
     PegasusPlugin.prototype._createFileFromFileSet = function(fsId, doNotMove){//If doNotMove is true, it won't be moved
         var self = this,
-            pos = JSON.parse(JSON.stringify(self.core.getRegistry(self._nodeCache[fsId],'position'))),
+            pos = JSON.parse(JSON.stringify(self.core.getMemberRegistry(self.activeNode, "Workspace", fsId, 'position') || self.core.getRegistry(self._nodeCache[fsId],'position'))),
             names = self._getFileNames(fsId),
             name = names[0],
             fileId,
@@ -625,12 +643,11 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     };
     //transformed
     PegasusPlugin.prototype._createPreviewNode = function(id){
-        //FIXME the position is messed up here
         //Creates the Preview_File/Job
         var self = this,
             node = self._nodeCache[id],
             name = self.core.getAttribute(node,'name'),
-            pos = JSON.parse(JSON.stringify(self.core.getRegistry(node,'position')));
+            pos = JSON.parse(JSON.stringify(self.core.getMemberRegistry(self.activeNode, "Workspace", id, 'position') || self.core.getRegistry(node,'position')));
 
         if(self._isTypeOf(node,self.META['File'])){
             return self._createFile(name,pos);
@@ -661,7 +678,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         newJob = self.core.createNode({parent:self.activeNode,base:self.META['PreviewJob']});
         self.core.setAttribute(newJob,'name',name);
         self.core.setAttribute(newJob,'cmd',cmd);
-        self.core.setAttribute(newJob,'pos',pos);
+        self.core.setRegistry(newJob,'position',pos);
 
         self._nodeCache[self.core.getPath(newJob)] = newJob;
 
