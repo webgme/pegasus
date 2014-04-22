@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 Vanderbilt University, All rights reserved.
+ *
+ * Author: Brian Broll
+ */
+
 define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(PluginConfig,PluginBase,assert){
 
     var PegasusPlugin = function () {
@@ -104,7 +110,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         var self = this;
 
         //Copying project
-        self.outputId = self.activeNode;//this._createOutputProject();
+        self.outputId = self.activeNode;
         var childrenIds = self._getChildrenAndClearPreview();//delete previously generated preview
 
         self._createCopyLists(childrenIds);
