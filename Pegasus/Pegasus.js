@@ -243,7 +243,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 self._removeFromGraph(fsId);
                 self._removeFromGraph(mergeId);
 
-            } else if( self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]]],self.META['FileSet']) ) {//If the node is a fileset and next is not a fork
+            } else if( self._isTypeOf(self._nodeCache[nodeIds[0]],self.META['FileSet']) ) {//If the node is a fileset and next is not a fork
                 ids = self._processFileSet(nodeIds[0]);             //Resolve the whole fileset and insert the additional files into the graph
                 preview = ids[0];
                 i = 0;
