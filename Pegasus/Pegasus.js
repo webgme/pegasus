@@ -40,6 +40,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             }
         ]
     };
+    */
 
             //helper functions created by Tamas ;)
     PegasusPlugin.prototype._loadStartingNodes = function(callback){
@@ -871,7 +872,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         return result;
     };
 
-    //Thanks to Hakan for the next two functions
+    //Thanks to Tamas for the next two functions
     PegasusPlugin.prototype._saveOutput = function(fileName,stringFileContent,callback){
         var self = this,
             artifact = self.blobClient.createArtifact(self.projectName.replace(" ", "_")+"_Config");
