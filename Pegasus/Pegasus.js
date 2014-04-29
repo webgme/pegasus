@@ -18,7 +18,29 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         return "Pegasus Plugin";
     };
 
-    //helper functions created by Tamas ;)
+    //config options
+    PegasusPlugin.prototype.getConfigStructure = function () {
+        return [
+            {
+                "name": "preview",
+                "displayName": "Generate Preview",
+                "description": '',
+                "value": false, // this is the 'default config'
+                "valueType": "boolean",
+                "readOnly": false
+            },
+            {
+                "name": "configuration",
+                "displayName": "Generate Configuration File",
+                "description": '',
+                "value": false, // this is the 'default config'
+                "valueType": "boolean",
+                "readOnly": false
+            }
+        ]
+    };
+
+            //helper functions created by Tamas ;)
     PegasusPlugin.prototype._loadStartingNodes = function(callback){
         //we load the children of the active node
         var self = this;
@@ -74,7 +96,10 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
     //the main entry point of plugin execution
     PegasusPlugin.prototype.main = function (callback) {
-        var self = this;
+
+        var self = this,
+            config = self.getCurrentConfig();
+        console.log(config.preview,config.configuration);
         self.logger.info("Running Pegasus Plugin");
         self.original2copy = {}; //Mapping original node ids to copy
         self.graph = null;
