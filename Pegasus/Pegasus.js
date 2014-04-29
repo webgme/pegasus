@@ -23,7 +23,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         //we load the children of the active node
         var self = this;
         self._nodeCache = {};
-        self.dx = 140;
+        self.dx = 60;
         self.dy = 0;
         var load = function(node, fn){
             self.core.loadChildren(node,function(err,children){
@@ -109,11 +109,15 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     PegasusPlugin.prototype._runSync = function(){
         var self = this;
 
-        //Copying project
+        //TODO Specify generating the preview and/or the config file
+        //Creating the graphical preview
         self.outputId = self.activeNode;
         var childrenIds = self._getChildrenAndClearPreview();//delete previously generated preview
 
         self._createCopyLists(childrenIds);
+
+        //Creating the DAX File
+        self._createDAXFile();
 
         return null;
     };
@@ -627,10 +631,15 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             fileId,
             shift = { 'x': self.dx * (names.length-1)/2, 'y': self.dy * (names.length-1)/2 };//adjust pos by names and dx/dy
 
+
+        //Uncomment this to center the generated files in the workflow
+
+        /*
         if(!doNotMove){
             pos.x = Math.max(0, pos.x - shift.x);
             pos.y = Math.max(0, pos.y - shift.y);
         }
+         */
 
         fileId = self._createFile(name, pos);
 
@@ -716,6 +725,118 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         }
 
         return names;
+    };
+
+    PegasusPlugin.prototype._createDAXFile = function(){
+        //Create DAX file for Pegasus
+        var self = this,
+            nodes = self.graph.start.slice(),
+            jobs = [],
+            dax = '<?xml version="1.0" encoding="UTF-8"?>\n'+
+            //'<!-- generated on ' + (new Date()).toDateString() + " -->\n' +
+            '<!-- generated with WebGME -->\n' + 
+            '<adag xmlns="http://pegasus.isi.edu/schema/DAX" ' + 
+            'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ' + 
+            'xsi:schemaLocation="http://pegasus.isi.edu/schema/DAX ' +
+            'http://pegasus.isi.edu/schema/dax-3.4.xsd" version="3.4" ' +
+            'name="' + self.core.getAttribute(self.activeNode,'name') +'">\n',
+            childInfo = "",
+            i;
+
+        //Traverse the graph and create job info
+        while(nodes.length){
+            if(self._isTypeOf(self.getNode(nodes[0]),self.META['PreviewJob'])){
+                jobs.push(nodes[0]);
+            }
+
+            nodes = nodes.concat(self.graph[nodes[0]].child);
+            nodes.splice(0,1);
+        }
+
+        i = jobs.length;
+        while(i--){
+            dax += self._createJobConfig(jobs[i]);//Create Job Section
+            childInfo += self._createChildInfo(jobs[i]);//Create Parent-Child Stuff
+        }
+
+        dax += childInfo + '</adag>';
+        return dax;
+    };
+
+    PegasusPlugin.prototype._createJobConfig = function(job){
+        var self = this, 
+            id = "ID" + self.getNode(job).relid,
+            node = self.getNode(job),
+            name = self.core.getAttribute(node, 'name'),
+            cmd = self.core.getAttribute(node, 'cmd'),
+            args = cmd.substring(cmd.indexOf(" ")+1),
+            input = [],
+            output = [],
+            result = '\t<job id="' + id + '" name="' + name + '" >\n',
+            i = self.graph[job].base.length,
+            j = args.indexOf('$in '),
+            k = args.indexOf(' $out'),
+            n;
+
+        result += '\t\t<argument>' + args.substring(0, j);
+
+        //Get files coming in and create argument
+        while(i--){
+            n = self.core.getAttribute(self.getNode(self.graph[job].base[i]), 'name');
+            input.push(n);
+            result += '<file name="' + n + '"/> ';
+        }
+
+        result += args.substring(j+4, k);
+        //Get files going out
+        i = self.graph[job].child.length;
+        while(i--){
+            n = self.core.getAttribute(self.getNode(self.graph[job].child[i]), 'name');
+            output.push(n);
+            result += ' <file name="' + n + '"/> ';
+        }
+        result += args.substring(k+5) + '</argument>\n';
+
+        i = input.length;
+        while(i--){
+            result += '\t\t<uses name="' + input[i] + '" link="input"/>\n';
+        }
+
+        i = output.length;
+        while(i--){
+            result += '\t\t<uses name="' + output[i] + '" link="output"/>\n';
+        }
+
+        result += "\t</job>\n";
+
+        return result;
+    };
+
+    PegasusPlugin.prototype._createChildInfo = function(job){
+        var self = this, 
+            id = "ID" + self.getNode(job).relid,
+            parents = [],
+            result = '\t<child ref="' + id + '">\n',
+            i = self.graph[job].base.length,
+            node,
+            inFile;
+
+        while(i--){
+            inFile = self.graph[job].base[i];
+            parents = parents.concat(self.graph[inFile].base);
+        }
+
+        if(parents.length === 0)
+            return "";
+
+        i = parents.length;
+        while(i--){
+            id = self.getNode(parents[i]).relid;
+            result += '\t\t<parent ref="ID' + id + '" />\n';
+        } 
+
+        result += '\t</child>\n';
+        return result;
     };
 
     return PegasusPlugin;
