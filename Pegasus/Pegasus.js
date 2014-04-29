@@ -19,6 +19,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     };
 
     //config options
+    /*
     PegasusPlugin.prototype.getConfigStructure = function () {
         return [
             {
@@ -96,10 +97,14 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
     //the main entry point of plugin execution
     PegasusPlugin.prototype.main = function (callback) {
+        var self = this;
+            //config = self.getCurrentConfig();
 
-        var self = this,
-            config = self.getCurrentConfig();
-        console.log(config.preview,config.configuration);
+        //If activeNode is null, we won't be able to run TODO
+        //if(self.activeNode === null)
+            //self._errorMessages(self.activeNode, "TEST");
+
+        //console.log(config.preview,config.configuration);
         self.logger.info("Running Pegasus Plugin");
         self.original2copy = {}; //Mapping original node ids to copy
         self.graph = null;
@@ -136,14 +141,16 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
         //TODO Specify generating the preview and/or the config file
         //Creating the graphical preview
-        self.outputId = self.activeNode;
+        //self.outputId = self.activeNode;
+        self.projectName = self.core.getAttribute(self.activeNode,'name');
         var childrenIds = self._getChildrenAndClearPreview();//delete previously generated preview
 
         self._createCopyLists(childrenIds);
 
         //Creating the DAX File
-        self._createDAXFile();
+        var config = self._createDAXFile();
 
+        self._saveOutput(self.projectName.replace(" ", "_") + ".dax", config, function(){});
         return null;
     };
 
@@ -764,7 +771,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ' + 
             'xsi:schemaLocation="http://pegasus.isi.edu/schema/DAX ' +
             'http://pegasus.isi.edu/schema/dax-3.4.xsd" version="3.4" ' +
-            'name="' + self.core.getAttribute(self.activeNode,'name') +'">\n',
+            'name="' + self.projectName +'">\n',
             childInfo = "",
             i;
 
@@ -862,6 +869,41 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
         result += '\t</child>\n';
         return result;
+    };
+
+    //Thanks to Hakan for the next two functions
+    PegasusPlugin.prototype._saveOutput = function(fileName,stringFileContent,callback){
+        var self = this,
+            artifact = self.blobClient.createArtifact(self.projectName.replace(" ", "_")+"_Config");
+
+        artifact.addFile(fileName,stringFileContent,function(err){
+            if(err){
+                callback(err);
+            } else {
+                self.blobClient.saveAllArtifacts(function(err, hashes) {
+                    if (err) {
+                        callback(err);
+                    } else {
+                        self.logger.info('Artifacts are saved here:');
+                        self.logger.info(hashes);
+
+                        // result add hashes
+                        for (var j = 0; j < hashes.length; j += 1) {
+                            self.result.addArtifact(hashes[j]);
+                        }
+
+                        self.result.setSuccess(true);
+                        callback(null);
+                    }
+                });
+            }
+        });
+    };
+
+    PegasusPlugin.prototype._errorMessages = function(message){
+        //TODO the erroneous node should be send to the function
+        var self = this;
+        self.createMessage(self.activeNode,message);
     };
 
     return PegasusPlugin;
