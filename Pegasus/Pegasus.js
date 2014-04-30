@@ -276,7 +276,8 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         // Traverse/Update the graph and create the forks object
         var self = this,
             forks = [],
-            nodeIds = self.graph.start,
+            nodeIds = self.graph.start.slice(),
+            visited = {},
             preview,
             currFork,//Preview node
             fork,
@@ -294,6 +295,12 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             skip = false;
             del = false;
             preview = null;
+
+            if(visited[nodeIds[0]]){
+                nodeIds.splice(0,1);
+                continue;
+            }
+            visited[nodeIds[0]] = true;
             //If the next node is a fork
             //Create a fork object and add to "forks"
             if( self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]].child[0]],self.META['Fork']) ) {
@@ -426,9 +433,16 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         nodes.push(sfile);
         //Figure out the size of the current fork
 
-        var pos;
+        var pos,
+            visited = {};
         while(self.graph[nodes[0]] && self.graph[nodes[0]].base.indexOf(fork.end[0]) === -1){
             //BFS
+            if(visited[nodes[0]]){
+                nodes.splice(0,1);
+                continue;
+            }
+            visited[nodes[0]] = true;
+
             //Get the position info about entire box
             pos = self.core.getMemberRegistry(self.activeNode, "Workspace", nodes[0], 'position') || self.core.getRegistry(self._nodeCache[nodes[0]],'position');
             x1 = Math.min(x1, pos.x) || pos.x;
@@ -719,6 +733,8 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     PegasusPlugin.prototype._createConnection = function(src, dst){
         var self = this,
             newConnection = self.core.createNode({parent:self.activeNode,base:self.META['PreviewConn']});
+            //newConnection = self.core.createNode({guid: GUID, parent:self.activeNode,base:self.META['PreviewConn']});
+            //TODO Build dictionary from guid to path
 
         self.core.setPointer(newConnection,'src',self._nodeCache[src]);
         self.core.setPointer(newConnection,'dst',self._nodeCache[dst]);
@@ -811,10 +827,18 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             'http://pegasus.isi.edu/schema/dax-3.4.xsd" version="3.4" ' +
             'name="' + self.projectName +'">\n',
             childInfo = "",
+            visited = {},
             i;
 
         //Traverse the graph and create job info
         while(nodes.length){
+
+            if(visited[nodes[0]]){
+                nodes.splice(0,1);
+                continue;
+            }
+            visited[nodes[0]] = true;
+
             if(self._isTypeOf(self.getNode(nodes[0]),self.META['PreviewJob'])){
                 jobs.push(nodes[0]);
             }
