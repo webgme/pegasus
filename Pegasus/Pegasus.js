@@ -96,8 +96,8 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
     //the main entry point of plugin execution
     PegasusPlugin.prototype.main = function (callback) {
-        var self = this,
-            config = self.getCurrentConfig();
+        var self = this;
+        self.config = self.getCurrentConfig();
 
         //If activeNode is null, we won't be able to run TODO
         //if(self.activeNode === null)
@@ -119,23 +119,49 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             } else {
                 //executing the plugin
                 self.logger.info("Finished loading children");
-                var err = self._runSync(config);
+                var err = self._runSync();
                 if(err){
                     self.result.success = false;
                     callback(err,self.result);
                 } else {
-                    self.save("Pegasus plugin modified project",function(err){
-                        if(callback){
-                            self.result.success = true;
-                            callback(null,self.result);
-                        }
-                    });
+                    var counter = self.config.preview + self.config.configuration;
+                    if(self.config.configuration){
+                        self._saveOutput(self.projectName.replace(" ", "_") + ".dax", self.output, function(err){
+                            if(err){ 
+                                self.result.success = false;
+                                callback(err,self.result);
+                            } else {
+                                if(--counter === 0){
+                                    if(callback){
+                                        self.result.success = true;
+                                        callback(null,self.result);
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    if(self.config.preview){
+                        self.save("Pegasus plugin modified project",function(err){
+                            if(err){ 
+                                self.result.success = false;
+                                callback(err,self.result);
+                            } else {
+                                if(--counter === 0){
+                                    if(callback){
+                                        self.result.success = true;
+                                        callback(null,self.result);
+                                    }
+                                }
+                            }
+                        });
+                    }
                 }
             }
         });
     };
 
-    PegasusPlugin.prototype._runSync = function(c){
+    PegasusPlugin.prototype._runSync = function(){
         var self = this;
 
         //TODO Specify generating the preview and/or the config file
@@ -145,16 +171,15 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
         self._createCopyLists(childrenIds);
 
-        if(c.configuration){
+        if(self.config.configuration){
             //Creating the DAX File
-            var config = self._createDAXFile();
+            self.output = self._createDAXFile();
 
-            self._saveOutput(self.projectName.replace(" ", "_") + ".dax", config, function(){});
         }
 
-        if(!c.preview || Object.keys(self.graph).length > 150){//Remove the preview nodes if too large or unrequested
+        if(!self.config.preview || Object.keys(self.graph).length > 150){//Remove the preview nodes if too large or unrequested
             self._getChildrenAndClearPreview();
-            if(c.preview){
+            if(self.config.preview){
                 self.createMessage(null, "Preview is too large to display. Please use the preview for generating previews of the final structure.");
             }
         }
