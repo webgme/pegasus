@@ -19,7 +19,6 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     };
 
     //config options
-    /*
     PegasusPlugin.prototype.getConfigStructure = function () {
         return [
             {
@@ -34,13 +33,12 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 "name": "configuration",
                 "displayName": "Generate Configuration File",
                 "description": '',
-                "value": false, // this is the 'default config'
+                "value": true, // this is the 'default config'
                 "valueType": "boolean",
                 "readOnly": false
             }
         ]
     };
-    */
 
             //helper functions created by Tamas ;)
     PegasusPlugin.prototype._loadStartingNodes = function(callback){
@@ -98,8 +96,8 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
     //the main entry point of plugin execution
     PegasusPlugin.prototype.main = function (callback) {
-        var self = this;
-            //config = self.getCurrentConfig();
+        var self = this,
+            config = self.getCurrentConfig();
 
         //If activeNode is null, we won't be able to run TODO
         //if(self.activeNode === null)
@@ -121,7 +119,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             } else {
                 //executing the plugin
                 self.logger.info("Finished loading children");
-                var err = self._runSync();
+                var err = self._runSync(config);
                 if(err){
                     self.result.success = false;
                     callback(err,self.result);
@@ -137,21 +135,30 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         });
     };
 
-    PegasusPlugin.prototype._runSync = function(){
+    PegasusPlugin.prototype._runSync = function(c){
         var self = this;
 
         //TODO Specify generating the preview and/or the config file
         //Creating the graphical preview
-        //self.outputId = self.activeNode;
         self.projectName = self.core.getAttribute(self.activeNode,'name');
         var childrenIds = self._getChildrenAndClearPreview();//delete previously generated preview
 
         self._createCopyLists(childrenIds);
 
-        //Creating the DAX File
-        var config = self._createDAXFile();
+        if(c.configuration){
+            //Creating the DAX File
+            var config = self._createDAXFile();
 
-        self._saveOutput(self.projectName.replace(" ", "_") + ".dax", config, function(){});
+            self._saveOutput(self.projectName.replace(" ", "_") + ".dax", config, function(){});
+        }
+
+        if(!c.preview || Object.keys(self.graph).length > 150){//Remove the preview nodes if too large or unrequested
+            self._getChildrenAndClearPreview();
+            if(c.preview){
+                self.createMessage(null, "Preview is too large to display. Please use the preview for generating previews of the final structure.");
+            }
+        }
+
         return null;
     };
 
@@ -338,7 +345,6 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         }
 
         //If currently in a fork, close it
-        //TODO
         //Close the current fork
         while(currFork){
             currFork.end = last;
