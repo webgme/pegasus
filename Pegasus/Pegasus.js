@@ -254,6 +254,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             ids,
             skip,
             del,
+            last,
             j,
             i;
 
@@ -314,10 +315,6 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 while(++i < ids.length){
                     self.graph[ids[i]] = { 'base': self.graph[nodeIds[0]].base, 'child': self.graph[nodeIds[0]].child };
                 }
-                //j = nodeIds[0].base.length;
-                //while(j--){
-                //this._createConnection(nodeIds[0].base[j], ids[i]);//Create connection
-                //}
             }else {//Else create preview node
 
                 preview = self._createPreviewNode(nodeIds[0]);
@@ -336,8 +333,17 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 self._replaceInGraph(preview, nodeIds[0]);
             }
 
+            last = nodeIds[nodeIds.length-1];
             nodeIds.splice(0,1);
         }
+
+        //If currently in a fork, close it
+        //TODO
+        //Close the current fork
+        while(currFork){
+            currFork.end = last;
+            currFork = currFork.out;
+        };
 
         return forks;
     };
