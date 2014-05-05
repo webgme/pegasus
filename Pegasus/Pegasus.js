@@ -4,7 +4,13 @@
  * Author: Brian Broll
  */
 
-define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(PluginConfig,PluginBase,assert){
+define(['plugin/PluginConfig',
+        'plugin/PluginBase',
+        'util/assert',
+        'util/guid'],function(PluginConfig,
+                              PluginBase,
+                              assert,
+                              genGuid){
 
     var PegasusPlugin = function () {
         // Call base class's constructor
@@ -80,7 +86,12 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         if(node === undefined || node === null || type === undefined || type === null){
             return false;
         }
+
         var self = this;
+        if(self.graph[node] && self.graph[node].baseId){//If given guid
+            node = self.graph[node].baseId;
+        }
+
         while(node){
             if(self.core.getPath(node) === self.core.getPath(type)){
                 return true;
@@ -99,16 +110,15 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         var self = this;
         self.config = self.getCurrentConfig();
 
-        //If activeNode is null, we won't be able to run TODO
-        //if(self.activeNode === null)
-            //self._errorMessages(self.activeNode, "TEST");
-
         //console.log(config.preview,config.configuration);
         self.logger.info("Running Pegasus Plugin");
-        self.original2copy = {}; //Mapping original node ids to copy
-        self.graph = null;
-        self.params = [{ 'parentId': self.ActiveNode }];
-        self.extraCopying = [];
+        self.graph = {};
+        self.guid2path = {};
+        self.path2guid = {};
+
+        //If activeNode is null, we won't be able to run 
+        if(!self._isTypeOf(self.activeNode, self.META['Macro']))
+            self._errorMessages(self.activeNode, "Current project is an invalid type. Please run the plugin on a macro.");
 
         //setting up cache
         self._loadStartingNodes(function(err){
@@ -164,24 +174,24 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     PegasusPlugin.prototype._runSync = function(){
         var self = this;
 
-        //TODO Specify generating the preview and/or the config file
-        //Creating the graphical preview
         self.projectName = self.core.getAttribute(self.activeNode,'name');
         var childrenIds = self._getChildrenAndClearPreview();//delete previously generated preview
 
-        self._createCopyLists(childrenIds);
+        //Create Graph
+        self._createGraph(childrenIds);
+
+        if(self.config.preview){
+            if(Object.keys(self.graph).length > 250){
+                self.createMessage(null, "Preview is too large to display(" + Object.keys(self.graph).length + "). Please use the preview for generating previews of the final structure.");
+            }else{
+                self._createPreview();
+            }
+        }
 
         if(self.config.configuration){
             //Creating the DAX File
             self.output = self._createDAXFile();
 
-        }
-
-        if(!self.config.preview || Object.keys(self.graph).length > 150){//Remove the preview nodes if too large or unrequested
-            self._getChildrenAndClearPreview();
-            if(self.config.preview){
-                self.createMessage(null, "Preview is too large to display. Please use the preview for generating previews of the final structure.");
-            }
         }
 
         return null;
@@ -205,54 +215,93 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         return childrenPaths;
     };
     //transformed
-    PegasusPlugin.prototype._createCopyLists = function(nIds){
-        var self = this,
-            forks;//Create lists out of lists
-
-        //Next, for each path, I will resolve the dot operators then the filesets
-        self._createGraph(nIds);
-        forks = self._createSkeletonWorkflowAndGetForks();
-        if(forks.length){
-            self._copyForkGroups(forks);
-        }
-        self._connectPreviewObjects();
-    };
-    //transformed
     PegasusPlugin.prototype._createGraph = function(nIds){
         // I will create a dictionary of objects with pointers to the base/children
         // in the graph
         var self = this,
-            n,src,dst,nodes,i;
+            n,
+            src,s,//src is id, s is node 
+            dst,d,//dst is id, d is node 
+            nodes,
+            srcGuid,
+            dstGuid,
+            guid,
+            i;
         self.graph = {'start': []};
 
-        //Order the nodes by the following rule:
-        //If it is linked to the last node, add it
-        //O.W. get the highest node
+        //Create graph of nodes in workflow aspect
         while(nIds.length){
             //Create entries in the graph for all non-connection ids
             n = self._nodeCache[nIds[0]];
             if(!self._isTypeOf(n,self.META['Connection'])){
 
-                if(!self.graph[nIds[0]]){
-                    self.graph[nIds[0]] = {'base': [], 'child': []};
+                guid = self.core.getGuid(n);
+                if(!self.graph[guid]){
+                    self.guid2path[guid] = nIds[0];
+                    self.path2guid[nIds[0]] = guid;
+                    self.graph[guid] = {'base': [], 'child': [], 
+                        'params': {
+                            'atr': JSON.parse(JSON.stringify(n.data.atr)), 
+                            'reg': JSON.parse(JSON.stringify(n.data.reg))
+                        },
+                        'baseId': self.core.getBase(n) };
+                }
+
+                //If it has a different aspect position
+                if(self.core.getMemberRegistry(self.activeNode, "Workspace", nIds[0], 'position') ){
+                    self.graph[guid].params.reg.position = JSON.parse(JSON.stringify(
+                                self.core.getMemberRegistry(self.activeNode, "Workspace", nIds[0], 'position') ));
+                }
+
+                if(self._isTypeOf(guid, self.META["Job"])){
+                    self.graph[guid].params.atr.cmd = self.core.getAttribute(n, 'cmd');//Force cmd attribute
                 }
 
             }else {//Connection
                 src = self.core.getPointerPath(n,'src');
                 dst = self.core.getPointerPath(n,'dst');
+                s = self.getNode(src);
+                d = self.getNode(dst);
+                srcGuid = self.core.getGuid(s);
+                dstGuid = self.core.getGuid(d);
 
                 //Create src/dst if necessary
-                if(!this.graph[src]){
-                    this.graph[src] = {'base': [], 'child': []};
+                if(!self.graph[srcGuid]){
+
+                    self.guid2path[srcGuid] = src;
+                    self.graph[srcGuid] = {'base': [], 'child': [], 
+                        'params': {
+                            'atr': JSON.parse(JSON.stringify(s.data.atr)), 
+                            'reg': JSON.parse(JSON.stringify(s.data.reg))
+                        },
+                        'baseId': self.core.getBase(s) };
+
+                    //If it has a different aspect position
+                    if(self.core.getMemberRegistry(self.activeNode, "Workspace", src, 'position') ){
+                        self.graph[srcGuid].params.reg.position = JSON.parse(JSON.stringify(
+                                    self.core.getMemberRegistry(self.activeNode, "Workspace", src, 'position') ));
+                    }
                 }
 
-                if(!this.graph[dst]){
-                    this.graph[dst] = {'base': [], 'child': []};
+                if(!self.graph[dstGuid]){
+                    self.guid2path[dstGuid] = dst;
+                    self.graph[dstGuid] = {'base': [], 'child': [],
+                        'params': {
+                            'atr': JSON.parse(JSON.stringify(d.data.atr)), 
+                            'reg': JSON.parse(JSON.stringify(d.data.reg))
+                        },
+                        'baseId': self.core.getBase(d) };
+
+                    //If it has a different aspect position
+                    if(self.core.getMemberRegistry(self.activeNode, "Workspace", dst, 'position') ){
+                        self.graph[dstGuid].params.reg.position = JSON.parse(JSON.stringify(
+                                    self.core.getMemberRegistry(self.activeNode, "Workspace", dst, 'position') ));
+                    }
                 }
 
                 //Update the src/dst entries in the graph
-                this.graph[src].child.push(dst);
-                this.graph[dst].base.push(src);
+                self.graph[srcGuid].child.push(dstGuid);
+                self.graph[dstGuid].base.push(srcGuid);
             }
 
             nIds.splice(0,1);
@@ -262,7 +311,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         nodes = Object.keys(self.graph);
         for(i=0;i<nodes.length;i++){
             if(nodes[i] !== 'start'){
-                n = self._nodeCache[nodes[i]];
+                n = nodes[i];
                 if(self._isTypeOf(n,self.META['FileSet']) || self._isTypeOf(n,self.META['File'])){
                     if(self.graph[nodes[i]].base.length === 0){
                         self.graph['start'].push(nodes[i]);
@@ -270,9 +319,49 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 }
             }
         }
+
+        //Create the resulting workflow
+        self._expandGraph();
+    };
+
+    PegasusPlugin.prototype._expandGraph = function(){
+        //Expand self.graph to the whole workflow
+        var self = this,
+            forks;//Create lists out of lists
+
+        forks = self._resolveFileSetsAndGetForks();
+        if(forks.length){
+            self._expandForks(forks);
+        }
+
     };
     //transformed
-    PegasusPlugin.prototype._createSkeletonWorkflowAndGetForks = function(){
+    PegasusPlugin.prototype._createPreview = function(){
+        var self = this,
+            nodeIds = self.graph['start'],
+            visited = {},//dictionary of visited nodes
+            j;
+
+        while(nodeIds.length){
+            if(visited[nodeIds[0]]){
+                nodeIds.splice(0,1);
+                continue;
+            }
+            //Create nodeIds[0] preview item
+            self.guid2path[nodeIds[0]] = self._createPreviewNode(nodeIds[0]);
+
+            j = self.graph[nodeIds[0]].base.length;
+
+            while(j--){
+                self._createConnection(this.graph[nodeIds[0]].base[j], nodeIds[0]);
+            }
+
+            nodeIds = nodeIds.concat(this.graph[nodeIds[0]].child);
+            visited[nodeIds.splice(0,1)[0]] = true;
+        }
+    };
+    //transformed
+    PegasusPlugin.prototype._resolveFileSetsAndGetForks = function(){
         // Traverse/Update the graph and create the forks object
         var self = this,
             forks = [],
@@ -283,6 +372,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             fork,
             forkId,
             mergeId,
+            path,
             fsId,
             ids,
             skip,
@@ -301,32 +391,26 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 continue;
             }
             visited[nodeIds[0]] = true;
+
             //If the next node is a fork
             //Create a fork object and add to "forks"
-            if( self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]].child[0]],self.META['Fork']) ) {
+            if( self._isTypeOf(self.graph[nodeIds[0]].child[0],self.META['Fork']) ) {
                 fork = { 'start': nodeIds[0], 'in': [], 'out': null  };
                 if(currFork){//set the 'in'/'out' variable
                     currFork.in.push(fork);
                     fork.out = currFork;
+                }else{
+                    forks.push(fork);
                 }
 
-                forks.push(fork);
                 currFork = fork;
 
                 //Remove Fork object from graph
-                forkId = this.graph[nodeIds[0]].child[0];
-                this.graph[nodeIds[0]].child = this.graph[forkId].child;
+                forkId = self.graph[nodeIds[0]].child[0];
+                self._removeFromGraph(forkId);
+                skip = true;
 
-                i = this.graph[nodeIds[0]].child.length;
-                while(i--){
-                    j = this.graph[this.graph[nodeIds[0]].child[i]].base.indexOf(forkId);
-                    assert(j !== -1);
-                    this.graph[this.graph[nodeIds[0]].child[i]].base.splice(j, 1, nodeIds[0]);
-                }
-
-                delete self.graph[forkId];
-
-            } else if( self._isTypeOf(self._nodeCache[nodeIds[0]],self.META['Merge']) ) { //If merge operator
+            } else if( self._isTypeOf(nodeIds[0],self.META['Merge']) ) { //If merge operator
 
                 //Close the current fork
                 mergeId = nodeIds[0];
@@ -339,37 +423,21 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 currFork = currFork.out;
 
                 assert(self.graph[mergeId].child.length === 1, "Merge operator can only have one connection out");
-                assert(self._isTypeOf(self._nodeCache[self.graph[nodeIds[0]].child[0]],self.META['FileSet']), "FileSet must follow a Merge operator");
+                assert(self._isTypeOf(self.graph[nodeIds[0]].child[0],self.META['FileSet']), "FileSet must follow a Merge operator");
 
                 //Remove Merge object from graph
                 nodeIds[0] = self.graph[mergeId].base[0];
                 self._removeFromGraph(fsId);
                 self._removeFromGraph(mergeId);
 
-            } else if( self._isTypeOf(self._nodeCache[nodeIds[0]],self.META['FileSet']) ) {//If the node is a fileset and next is not a fork
-                ids = self._processFileSet(nodeIds[0]);             //Resolve the whole fileset and insert the additional files into the graph
-                preview = ids[0];
-                i = 0;
-
-                while(++i < ids.length){
-                    self.graph[ids[i]] = { 'base': self.graph[nodeIds[0]].base, 'child': self.graph[nodeIds[0]].child };
-                }
-            }else {//Else create preview node
-
-                preview = self._createPreviewNode(nodeIds[0]);
+            } else if( self._isTypeOf(nodeIds[0],self.META['FileSet']) ) {//If the node is a fileset and next is not a fork
+                self._processFileSet(nodeIds[0]);             //Resolve the whole fileset and insert the additional files into the graph
             }
 
-            //Add the children of nodeId to nodeIds
             if(skip){
                 nodeIds = nodeIds.concat(self.graph[self.graph[nodeIds[0]].child].child);
             }else{
                 nodeIds = nodeIds.concat(self.graph[nodeIds[0]].child);
-            }
-
-            //Replace nodeIds[0] with preview object
-            if(preview){
-
-                self._replaceInGraph(preview, nodeIds[0]);
             }
 
             last = nodeIds[nodeIds.length-1];
@@ -386,15 +454,10 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         return forks;
     };
     //transformed
-    PegasusPlugin.prototype._copyForkGroups = function(forks){
-        var outer = forks[0];
-
-        //Find the outermost fork and copy it
-        while(outer.out){
-            outer = outer.out;
+    PegasusPlugin.prototype._expandForks = function(forks){
+        for(var i = 0; i < forks.length; i++){//This list is the outermost forks
+            this._copyFork(forks[i]);
         }
-
-        this._copyFork(outer);
     };
     //transformed
     PegasusPlugin.prototype._copyFork = function(fork){
@@ -410,6 +473,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             j;
 
         assert(fork.start && fork.end, "Fork missing a merge operator");
+        assert(self._isTypeOf(fork.start, self.META["FileSet"]), "Fork must start with a fileset");
 
         //Copy any inside forks
         while(i--){
@@ -417,13 +481,18 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         }
 
         //Resolve the first and last file
-        var fileObject = self._createFileFromFileSet(fork.start, true),
+        var fileObject = self._createFileFromFileSet(self.guid2path[fork.start]),
             sfile = fileObject.id;//start file
 
         startNames = fileObject.names;
 
-        //Insert the files into the graph
-        self._replaceInGraph(sfile, fork.start);
+        //Insert the first file into the graph
+        self.graph[sfile] = { 'base': self.graph[fork.start].base, 
+            'child': self.graph[fork.start].child, 'baseId': fileObject.baseId,
+            'params': fileObject.params };
+
+        self._replaceInGraph(sfile, self.graph[sfile], fork.start);
+
 
         fork.start = sfile;
 
@@ -431,30 +500,26 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         numCopies = startNames.length;
 
         nodes.push(sfile);
-        //Figure out the size of the current fork
 
+        //Figure out the size of the current fork
         var pos,
+            nodeIds = [],
             visited = {};
+
         while(self.graph[nodes[0]] && self.graph[nodes[0]].base.indexOf(fork.end[0]) === -1){
             //BFS
-            if(visited[nodes[0]]){
+            if(nodeIds.indexOf(nodes[0]) !== -1){
                 nodes.splice(0,1);
                 continue;
             }
-            visited[nodes[0]] = true;
+            nodeIds.push(nodes[0]);//Create list of nodes to copy
 
             //Get the position info about entire box
-            pos = self.core.getMemberRegistry(self.activeNode, "Workspace", nodes[0], 'position') || self.core.getRegistry(self._nodeCache[nodes[0]],'position');
+            pos = self.graph[nodes[0]].params.reg.position;
             x1 = Math.min(x1, pos.x) || pos.x;
             x2 = Math.max(x2, pos.x) || pos.x;
             y1 = Math.min(y1, pos.y) || pos.y;
             y2 = Math.max(y2, pos.y) || pos.y;
-
-
-            //copy the node
-            //Create list of nodes to copy
-            copyRequest[nodes[0]] = { 'registry': { 'position': { 'x': pos.x , 'y': pos.y} }};
-            //copyRequest[nodes[0]]['registry'][
 
             //Add next nodes
             nodes = nodes.concat(self.graph[nodes[0]].child);
@@ -466,159 +531,138 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         var dx = self.dx + (x2-x1),
             dy = self.dy + (y2-y1),
             copiedPaths,
+            params,
             base,
             child,
             x = {},
-            y = {};
+            y = {},
+            copyPaths = Object.keys(copyRequest),
+            guid,
+            old2new = {},
+            node,
+            k;
 
-        for(var k in copyRequest){
-            if(copyRequest.hasOwnProperty(k) && k !== 'parentId'){
-                x[k] = copyRequest[k]['registry']['position']['x'];
-                y[k] = copyRequest[k]['registry']['position']['y'];
-                //copyRequest[k]['registry']['position']['y'] += dy;
-            }
-        }
+        for(i = 1; i < numCopies; i++){
+            //Generate guid's for each element of nodeIds
+            old2new = {};
+            for(k = 0; k < nodeIds.length; k++){//Generate guids
+                old2new[nodeIds[k]] = genGuid();
 
-        i = 0;
-        while(++i < numCopies){
-            //Set names
-            copyRequest[sfile].attributes = {};
-            copyRequest[sfile].attributes.name = startNames[i];
-
-            //Shift each node
-            var copyPaths = Object.keys(copyRequest),
-                k;
-
-            //repositioning
-            for(k=0;k<copyPaths.length;k++){
-                copyRequest[copyPaths[k]].registry.position = { 'x': x[copyPaths[k]]+=dx, 'y': y[copyPaths[k]] };
-            }
-
-            //do the actual copying - we copy the nodes one-by-one as there is no connection among them!!!
-            copiedPaths = [];
-            for(k=0;k<copyPaths.length;k++){
-                var copiedNode = self.core.copyNode(self._nodeCache[copyPaths[k]],self.activeNode);
-                self.core.setRegistry(copiedNode,'position',copyRequest[copyPaths[k]].registry.position);
-                if( copyRequest[copyPaths[k]].attributes && copyRequest[copyPaths[k]].attributes.name){
-                    self.core.setAttribute(copiedNode,'name',copyRequest[copyPaths[k]].attributes.name);
+                if(self.graph.start.indexOf(nodeIds[k]) !== -1){//Add guid to start if necessary
+                    self.graph.start.push(old2new[nodeIds[k]]);
                 }
-                self._nodeCache[self.core.getPath(copiedNode)] = copiedNode;
-                copiedPaths.push(self.core.getPath(copiedNode));
             }
 
-            //Insert nodes into graph
-            for(k=0;k<copiedPaths.length;k++){
-                if(self.graph.start.indexOf(copyPaths[k]) !== -1){
-                    self.graph.start.push(copiedPaths[k]);
-                }
+            for(k = 0; k < nodeIds.length; k++){
 
-                self.graph[copiedPaths[k]] = { 'base': [], 'child': [] };
-                j = self.graph[copyPaths[k]].base.length;
-                while(j--){
-                    base = self.graph[copyPaths[k]].base[j];
+                guid = old2new[nodeIds[k]];
 
-                    if(copyPaths.indexOf(base) !== -1){
-                        self.graph[copiedPaths[k]].base.push(copiedPaths[copyPaths.indexOf(base)]);//Set the base of the new point
+                //Adjust the position and name attributes
+                params = JSON.parse(JSON.stringify(self.graph[nodeIds[k]].params));
+                params.reg.position.x += dx;
+                //params.reg.position.y += dy;
+
+                if(k === 0){
+                    params.atr.name = fileObject.names[i];
+                }else if(self._isTypeOf(nodeIds[k], self.META["File"])){
+                    if(i === 1){
+                        params.atr.name += "(2)";
                     }else{
-                        self.graph[copiedPaths[k]].base.push(base);//Set the base of the new point
-                        self.graph[base].child.push(copiedPaths[k]);
+                        params.atr.name = params.atr.name.substring(0, params.atr.name.lastIndexOf("(")) + "(" + (i+1) + ")";
+                    }
+                }
+                //Add the node to the graph
+                self.graph[guid] = { base: self.graph[nodeIds[k]].base.slice(),
+                                     child: self.graph[nodeIds[k]].child.slice(),
+                                     baseId: self.graph[nodeIds[k]].baseId,
+                                     params: params };
+
+                j = self.graph[guid].base.length;
+                while(j--){
+                    base = self.graph[guid].base[j];
+
+                    if(old2new[base]){//Connecting to node inside the graph
+                        self.graph[guid].base[j] = old2new[base];
+                    }else{
+                        self.graph[base].child.push(guid);
                     }
                 }
 
-                j = this.graph[copyPaths[k]].child.length;
+                j = self.graph[guid].child.length;
                 while(j--){
-                    child = self.graph[copyPaths[k]].child[j];
+                    child = self.graph[guid].child[j];
 
-                    if(copyPaths.indexOf(child) !== -1){
-                        self.graph[copiedPaths[k]].child.push(copiedPaths[copyPaths.indexOf(child)]);//Set the child of the new point
+                    if(old2new[child]){//Connecting to node inside the graph
+                        self.graph[guid].child[j] = old2new[child];
                     }else{
-                        self.graph[copiedPaths[k]].child.push(child);//Set the child of the new point
-                        self.graph[child].base.push(copiedPaths[k]);
+                        self.graph[child].base.push(guid);
                     }
                 }
+                //Replace the id of nodeId[k] to the new id
+                nodeIds[k] = guid;
             }
         }
+
     };
     //transformed
-    PegasusPlugin.prototype._connectPreviewObjects = function(){
-        var self = this,
-            nodeIds = this.graph['start'],
-            visited = {},//dictionary of visited nodes
-            j;
-
-        while(nodeIds.length){
-            if(visited[nodeIds[0]]){
-                nodeIds.splice(0,1);
-                continue;
-            }
-
-            j = self.graph[nodeIds[0]].base.length;
-
-            while(j--){
-                self._createConnection(this.graph[nodeIds[0]].base[j], nodeIds[0]);
-            }
-
-            nodeIds = nodeIds.concat(this.graph[nodeIds[0]].child);
-            visited[nodeIds.splice(0,1)[0]] = true;
-        }
-    };
-    //transformed
-    PegasusPlugin.prototype._replaceInGraph = function(nodes, original){
+    PegasusPlugin.prototype._replaceInGraph = function(guid, node, original){
         var self = this,
             j = self.graph.start.indexOf(original);
-        nodes = nodes instanceof Array ? nodes : [nodes];
 
-        self._addToGraph(nodes, original);
+        self._addToGraph(guid, node, original);
 
         if(j !== -1)
             self.graph.start.splice(j,1);
 
+        i = self.graph[original].base.length;//Set all bases' children ptrs
+        while(i--){
+
+            j = self.graph[self.graph[original].base[i]].child.indexOf(original);
+            if(j !== -1){
+                self.graph[self.graph[original].base[i]].child.splice(j, 1); //replace original with node
+            }
+        }
+
+        i = self.graph[original].child.length;
+        while(i--){//Remove from all children's base ptrs
+
+            j = self.graph[self.graph[original].child[i]].base.indexOf(original);
+            if(j !== -1){
+                self.graph[self.graph[original].child[i]].base.splice(j, 1); //replace original with node
+            }
+        }
+
         delete self.graph[original];
     };
     //transformed
-    PegasusPlugin.prototype._addToGraph = function(nodes, original){
-        nodes = nodes instanceof Array ? nodes : [ nodes ];
+    PegasusPlugin.prototype._addToGraph = function(guid, node, original){
         var self = this,
-            node,
             isStart = self.graph.start.indexOf(original) > -1,
-            k = nodes.length,
             j,
             i;
 
-        while(k--){
-            node = nodes[k];
+        if(isStart)
+            self.graph.start.push(guid);
 
-            if(isStart)
-                self.graph.start.push(node);
+        //Set the node's child/base ptrs
+        self.graph[guid] = node;
+        self.graph[guid].base = self.graph[original].base;
+        self.graph[guid].child = self.graph[original].child;
 
-            //Set the node's child/base ptrs
-            self.graph[node] = this.graph[original];
+        i = self.graph[original].base.length;//Set all bases' children ptrs
+        while(i--){
+            if(self.graph[self.graph[original].base[i]].child.indexOf(guid) !== -1)//Kinda hacky
+                continue;
 
-            i = self.graph[original].base.length;//Set all bases' children ptrs
-            while(i--){
-                if(self.graph[self.graph[original].base[i]].child.indexOf(node) !== -1)//Kinda hacky
-                    continue;
+            self.graph[self.graph[original].base[i]].child.push(guid);
+        }
 
-                j = self.graph[self.graph[original].base[i]].child.indexOf(original);
-                if(j !== -1){
-                    self.graph[self.graph[original].base[i]].child.splice(j, 1, node); //replace original with node
-                }else{
-                    self.graph[self.graph[original].base[i]].child.push(node); //replace original with node
-                }
-            }
+        i = self.graph[original].child.length;
+        while(i--){//Set all children's base ptrs
+            if(self.graph[self.graph[original].child[i]].base.indexOf(guid) !== -1)
+                continue;
 
-            i = self.graph[original].child.length;
-            while(i--){//Set all children's base ptrs
-                if(self.graph[self.graph[original].child[i]].base.indexOf(node) !== -1)
-                    continue;
-
-                j = self.graph[self.graph[original].child[i]].base.indexOf(original);
-                if(j !== -1){
-                    self.graph[self.graph[original].child[i]].base.splice(j, 1, node); //replace original with node
-                }else{
-                    self.graph[self.graph[original].child[i]].base.push(node); //replace original with node
-                }
-            }
+            self.graph[self.graph[original].child[i]].base.push(guid); 
         }
     };
     //transformed
@@ -667,30 +711,30 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
     //transformed
     PegasusPlugin.prototype._processFileSet = function(fsId){//return ids: [ first file, ... rest ]
         var self = this,
-            fileObject = self._createFileFromFileSet(fsId),
-            ids = [ fileObject.id ],
+            fsPath = this.guid2path[fsId],
+            fileObject = self._createFileFromFileSet(fsPath),
+            baseId = fileObject.baseId,
             id,
             names = fileObject.names,
             pos = { 'x': fileObject.position.x, 'y': fileObject.position.y },
-            dx = self.dx,//TODO figure out an intelligent way to set these!
+            dx = self.dx,
             dy = self.dy,
-            i = 0,
-            conns = [],
-            attr,
+            i,
+            params,
             position,
             j;
 
-        self.graph[ids[0]] = { 'base': self.graph[fsId].base, 'child': self.graph[fsId].child };//Add the files to the graph
-
-        i = 0;
+        i = -1;
         //Next, we will create the rest of the files
         while(++i < names.length){
-            attr = {};
-            position = { 'x': pos.x+(i)*dx, 'y': pos.y+(i)*dy };
+            //Create params
+            params = JSON.parse(JSON.stringify(fileObject.params));
+            params.reg.position = { 'x': pos.x+(i)*dx, 'y': pos.y+(i)*dy };
+            params.atr.name = names[i];
 
-            id = self._createFile(names[i], position);
-            self.graph[id] = { 'base': self.graph[fsId].base, 'child': self.graph[fsId].child };//Add the files to the graph
-            ids.push(id);
+            id = genGuid();
+            self.graph[id] = { 'base': self.graph[fsId].base, 'child': self.graph[fsId].child, 
+                'baseId': baseId, 'params': params };//Add the files to the graph
 
             j = self.graph[fsId].base.length;
             while(j--){
@@ -701,40 +745,34 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             while(j--){
                 self.graph[this.graph[fsId].child[j]].base.push(id);
             }
-
         }
 
-        return ids;
+        //Remove fsId from graph
+        self._removeFromGraph(fsId);
     };
     //transformed
-    PegasusPlugin.prototype._createFileFromFileSet = function(fsId, doNotMove){//If doNotMove is true, it won't be moved
+    PegasusPlugin.prototype._createFileFromFileSet = function(fsPath, doNotMove){//If doNotMove is true, it won't be moved
         var self = this,
-            pos = JSON.parse(JSON.stringify(self.core.getMemberRegistry(self.activeNode, "Workspace", fsId, 'position') || self.core.getRegistry(self._nodeCache[fsId],'position'))),
-            names = self._getFileNames(fsId),
-            name = names[0],
-            fileId,
-            shift = { 'x': self.dx * (names.length-1)/2, 'y': self.dy * (names.length-1)/2 };//adjust pos by names and dx/dy
+            pos = JSON.parse(JSON.stringify(self.core.getMemberRegistry(self.activeNode, "Workspace", fsPath, 'position') 
+                        || self.core.getRegistry(self._nodeCache[fsPath],'position'))),
+            names = self._getFileNames(fsPath),
+            guid = genGuid(),
+            node = self.getNode(fsPath),
+            atr = JSON.parse(JSON.stringify(node.data.atr)),
+            reg = JSON.parse(JSON.stringify(node.data.reg));
 
-
-        //Uncomment this to center the generated files in the workflow
-
-        /*
-        if(!doNotMove){
-            pos.x = Math.max(0, pos.x - shift.x);
-            pos.y = Math.max(0, pos.y - shift.y);
-        }
-         */
-
-        fileId = self._createFile(name, pos);
-
-        return { 'id': fileId, 'name': name, 'names': names, 'position': pos };
+        atr.name = names[0];
+        //Return file to add to the graph
+       
+        return { 'id': guid, 'baseId': self.META['File'], 
+            'params': { 'atr': atr, 'reg': reg }, 'names': names, 'position': pos };
     };
     //transformed
-    PegasusPlugin.prototype._createConnection = function(src, dst){
+    PegasusPlugin.prototype._createConnection = function(srcGuid, dstGuid){
         var self = this,
+            src = self.guid2path[srcGuid],
+            dst = self.guid2path[dstGuid],
             newConnection = self.core.createNode({parent:self.activeNode,base:self.META['PreviewConn']});
-            //newConnection = self.core.createNode({guid: GUID, parent:self.activeNode,base:self.META['PreviewConn']});
-            //TODO Build dictionary from guid to path
 
         self.core.setPointer(newConnection,'src',self._nodeCache[src]);
         self.core.setPointer(newConnection,'dst',self._nodeCache[dst]);
@@ -743,48 +781,39 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         return self.core.getPath(newConnection);
     };
     //transformed
-    PegasusPlugin.prototype._createPreviewNode = function(id){
-        //Creates the Preview_File/Job
+    PegasusPlugin.prototype._createPreviewNode = function(guid){
         var self = this,
-            node = self._nodeCache[id],
-            name = self.core.getAttribute(node,'name'),
-            pos = JSON.parse(JSON.stringify(self.core.getMemberRegistry(self.activeNode, "Workspace", id, 'position') || self.core.getRegistry(node,'position')));
+            path,
+            baseId = self.META["PreviewJob"],
+            preview;
 
-        if(self._isTypeOf(node,self.META['File'])){
-            return self._createFile(name,pos);
+        //Get correct baseId
+        if(self._isTypeOf(guid, self.META["File"])){//Create PreviewFile
+            baseId = self.META["PreviewFile"];
         }
 
-        return self._createJob(name,self.core.getAttribute(node,'cmd'),pos);
+        preview = self.core.createNode({parent:self.activeNode, base:baseId });
+
+        //Create node using baseId
+        for(var a in self.graph[guid].params.atr){
+            if(self.graph[guid].params.atr.hasOwnProperty(a)){
+                self.core.setAttribute(preview,a,self.graph[guid].params.atr[a]);
+            }
+        }
+
+        for(var a in self.graph[guid].params.reg){
+            if(self.graph[guid].params.reg.hasOwnProperty(a)){
+                self.core.setRegistry(preview,a,self.graph[guid].params.reg[a]);
+            }
+        }
+
+        //Add it to nodeCache 
+        path = self.core.getPath(preview);
+        self._nodeCache[path] = preview;
+
+        return path;
     };
-    //transformed
-    PegasusPlugin.prototype._createFile = function(name, pos){
-        //Create a file type only viewable in the "Preview" aspect: Preview_File
-        var self = this,
-            newFile;
 
-        newFile = self.core.createNode({parent:self.activeNode,base:self.META['PreviewFile']});
-        self.core.setAttribute(newFile,'name',name);
-        self.core.setRegistry(newFile,'position',pos);
-
-        self._nodeCache[self.core.getPath(newFile)] = newFile;
-
-        return self.core.getPath(newFile);
-    };
-    //transformed
-    PegasusPlugin.prototype._createJob = function(name, cmd, pos){
-        //Create a file type only viewable in the "Preview" aspect: Preview_File
-        var self = this,
-            newJob;
-
-        newJob = self.core.createNode({parent:self.activeNode,base:self.META['PreviewJob']});
-        self.core.setAttribute(newJob,'name',name);
-        self.core.setAttribute(newJob,'cmd',cmd);
-        self.core.setRegistry(newJob,'position',pos);
-
-        self._nodeCache[self.core.getPath(newJob)] = newJob;
-
-        return self.core.getPath(newJob);
-    };
     //transformed
     PegasusPlugin.prototype._getFileNames = function(fsId){//FileSet node
         var self = this,
@@ -830,6 +859,8 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             visited = {},
             i;
 
+        self.guid2id = {};//Dictionary of guid -> id's for config
+
         //Traverse the graph and create job info
         while(nodes.length){
 
@@ -839,12 +870,22 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             }
             visited[nodes[0]] = true;
 
-            if(self._isTypeOf(self.getNode(nodes[0]),self.META['PreviewJob'])){
+            if(self._isTypeOf(nodes[0],self.META['Job'])){
                 jobs.push(nodes[0]);
             }
 
             nodes = nodes.concat(self.graph[nodes[0]].child);
             nodes.splice(0,1);
+        }
+
+        i = jobs.length;
+        while(i--){
+            id = i.toString();
+            while(id.length < 6){
+                id = "0" + id;
+            }
+            id = "ID" + id;
+            self.guid2id[jobs[i]] = id;
         }
 
         i = jobs.length;
@@ -857,12 +898,12 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         return dax;
     };
 
-    PegasusPlugin.prototype._createJobConfig = function(job){
+    PegasusPlugin.prototype._createJobConfig = function(job, id){
         var self = this, 
-            id = "ID" + self.getNode(job).relid,
-            node = self.getNode(job),
-            name = self.core.getAttribute(node, 'name'),
-            cmd = self.core.getAttribute(node, 'cmd'),
+            id = self.guid2id[job],
+            params = self.graph[job].params,
+            name = params.atr.name || self.core.getAttribute(self.META['Job'], 'name'),
+            cmd = params.atr.cmd || self.core.getAttribute(self.META['Job'], 'cmd'),
             args = cmd.substring(cmd.indexOf(" ")+1),
             input = [],
             output = [],
@@ -870,13 +911,15 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
             i = self.graph[job].base.length,
             j = args.indexOf('$in '),
             k = args.indexOf(' $out'),
+            id,
             n;
 
         result += '\t\t<argument>' + args.substring(0, j);
 
         //Get files coming in and create argument
         while(i--){
-            n = self.core.getAttribute(self.getNode(self.graph[job].base[i]), 'name');
+            id = self.graph[job].base[i];
+            n = self.graph[id].params.atr.name;
             input.push(n);
             result += '<file name="' + n + '"/> ';
         }
@@ -885,7 +928,8 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
         //Get files going out
         i = self.graph[job].child.length;
         while(i--){
-            n = self.core.getAttribute(self.getNode(self.graph[job].child[i]), 'name');
+            id = self.graph[job].child[i];
+            n = self.graph[id].params.atr.name;
             output.push(n);
             result += ' <file name="' + n + '"/> ';
         }
@@ -908,7 +952,7 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
     PegasusPlugin.prototype._createChildInfo = function(job){
         var self = this, 
-            id = "ID" + self.getNode(job).relid,
+            id = self.guid2id[job],
             parents = [],
             result = '\t<child ref="' + id + '">\n',
             i = self.graph[job].base.length,
@@ -925,15 +969,15 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
 
         i = parents.length;
         while(i--){
-            id = self.getNode(parents[i]).relid;
-            result += '\t\t<parent ref="ID' + id + '" />\n';
+            id = self.guid2id[parents[i]];
+            result += '\t\t<parent ref="' + id + '" />\n';
         } 
 
         result += '\t</child>\n';
         return result;
     };
 
-    //Thanks to Tamas for the next two functions
+    //Thanks to Tamas for the next function
     PegasusPlugin.prototype._saveOutput = function(fileName,stringFileContent,callback){
         var self = this,
             artifact = self.blobClient.createArtifact(self.projectName.replace(" ", "_")+"_Config");
@@ -960,12 +1004,6 @@ define(['plugin/PluginConfig','plugin/PluginBase','util/assert'],function(Plugin
                 });
             }
         });
-    };
-
-    PegasusPlugin.prototype._errorMessages = function(message){
-        //TODO the erroneous node should be send to the function
-        var self = this;
-        self.createMessage(self.activeNode,message);
     };
 
     return PegasusPlugin;
