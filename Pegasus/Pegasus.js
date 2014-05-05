@@ -255,6 +255,7 @@ define(['plugin/PluginConfig',
 
                 if(self._isTypeOf(guid, self.META["Job"])){
                     self.graph[guid].params.atr.cmd = self.core.getAttribute(n, 'cmd');//Force cmd attribute
+                    self.graph[guid].params.atr.name = self.core.getAttribute(n, 'name');//Force name attribute
                 }
 
             }else {//Connection
