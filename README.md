@@ -1,4 +1,10 @@
-# Description
-Pegasus plugin...
-# Usage
-just run the app.js under node and with the proper configuration file you will have a running webgme server which is able to use the plugin...
+# Pegasus
+This is a visual editor for diagramming scientific workflows (using generative modeling).
+
+## Installation
+Like most webgme apps, first start a mongodb locally (default for development). Then:
+
+    git clone https://github.com/webgme/pegasus
+    cd pegasus
+    npm install
+    npm start

@@ -1,0 +1,19 @@
+{
+  "components": {
+    "plugins": {
+      "Pegasus": {
+        "src": "src/plugins/Pegasus",
+        "test": "test/plugins/Pegasus"
+      }
+    },
+    "seeds": {
+      "Pegasus": {
+        "src": "src/seeds/Pegasus"
+      }
+    }
+  },
+  "dependencies": {
+    "plugins": {},
+    "seeds": {}
+  }
+}

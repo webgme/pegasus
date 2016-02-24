@@ -1,26 +1,34 @@
 {
-  "name": "webgme-pegasus",
-  "version": "0.1.0",
+  "name": "pegasus",
+  "version": "1.0.0",
   "description": "Pegasus plugin for webgme",
+  "scripts": {
+    "start": "node app.js",
+    "test": "node ./node_modules/mocha/bin/mocha --recursive test"
+  },
   "engines": {
     "node": ">=0.10.0"
   },
   "homepage": "http://github.com/webgme/webgme-pegasus",
   "keywords": [
-      "webgme",
-      "pegasus"
+    "webgme",
+    "pegasus"
   ],
   "repository": {
     "type": "git",
-    "url": "http://github.com/webgme/webgme-pegasus.git"
+    "url": "http://github.com/webgme/pegasus.git"
   },
   "bugs": {
-    "url": "http://github.com/webgme/webgme-pegasus/issues"
+    "url": "http://github.com/webgme/pegasus/issues"
   },
   "license": "MIT",
   "dependencies": {
-      "webgme": "https://github.com/webgme/webgme/tarball/master"
+    "webgme": "=1.4.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "mocha": "^2.2.5",
+    "rimraf": "^2.4.0",
+    "chai": "^3.0.0"
+  },
   "main": "app.js"
 }
